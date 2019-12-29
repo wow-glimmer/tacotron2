@@ -13,7 +13,7 @@ def save_figure_to_numpy(fig):
 
 def plot_alignment_to_numpy(alignment, info=None):
     fig, ax = plt.subplots(figsize=(6, 4))
-    im = ax.imshow(alignment, aspect='auto', origin='lower',
+    im = ax.imshow(alignment, cmap='inferno', aspect='auto', origin='lower',
                    interpolation='none')
     fig.colorbar(im, ax=ax)
     xlabel = 'Decoder timestep'
@@ -31,7 +31,7 @@ def plot_alignment_to_numpy(alignment, info=None):
 
 def plot_spectrogram_to_numpy(spectrogram):
     fig, ax = plt.subplots(figsize=(12, 3))
-    im = ax.imshow(spectrogram, aspect="auto", origin="lower",
+    im = ax.imshow(spectrogram, cmap='inferno', aspect="auto", origin="lower",
                    interpolation='none')
     plt.colorbar(im, ax=ax)
     plt.xlabel("Frames")
