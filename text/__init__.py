@@ -40,7 +40,6 @@ def text_to_sequence(text, cleaner_names):
 
   return sequence
 
-
 def sequence_to_ctc_sequence(sequence):
   return [_ctc_symbole_to_id[_id_to_symbol[s]] for s in sequence if _id_to_symbol[s] in ctc_symbols]
 
