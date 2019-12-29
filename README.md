@@ -41,43 +41,39 @@ Visit our [website] for audio samples using our published [Tacotron 2] and
 ![Alignment, Predicted Mel Spectrogram, Target Mel Spectrogram](tensorboard.png)
 
 
-## Pre-requisites
-1. NVIDIA GPU + CUDA cuDNN
+## Cookie Part
+This code is a WIP implementation of Tacotron2 for use with Google Colab and the Pony Preservation Project.
 
 ## Setup
-1. Download and extract the [LJ Speech dataset](https://keithito.com/LJ-Speech-Dataset/)
-2. Clone this repo: `git clone https://github.com/NVIDIA/tacotron2.git`
-3. CD into this repo: `cd tacotron2`
-4. Initialize submodule: `git submodule init; git submodule update`
-5. Update .wav paths: `sed -i -- 's,DUMMY,ljs_dataset_folder/wavs,g' filelists/*.txt`
-    - Alternatively, set `load_mel_from_disk=True` in `hparams.py` and update mel-spectrogram paths 
-6. Install [PyTorch 1.0]
-7. Install [Apex]
-8. Install python requirements or build docker image 
-    - Install python requirements: `pip install -r requirements.txt`
+0. Training will require "soundtools" from Synthbot's Google Drive to be added to your Google Drive.
+https://drive.google.com/drive/folders/1SWIeZWjIYXvtktnHuztV916dTtNylrpD
 
-## Training
-1. `python train.py --output_directory=outdir --log_directory=logdir`
-2. (OPTIONAL) `tensorboard --logdir=outdir/logdir`
+Right click "soundtools" in top left. And click "Add to My Drive".
 
-## Training using a pre-trained model
-Training using a pre-trained model can lead to faster convergence  
-By default, the dataset dependent text embedding layers are [ignored]
+1. Open the Training Notebook https://drive.google.com/file/d/1d1a4d7riehUOTofchlwo8N79n3Q7W4SK/view
+2. Copy to drive (or ctrl+s)
+3. Change
+>archive_fn = '/content/drive/My Drive/soundtools/data/audio-trimmed-22khz/Spitfire.tar'
 
-1. Download our published [Tacotron 2] model
-2. `python train.py --output_directory=outdir --log_directory=logdir -c tacotron2_statedict.pt --warm_start`
+in the block starting with "#=== load the repo and data (Thanks Synthbot) ==="
+To whatever pony you want to train i.e, if you wanted to train Zecora, change the line to
 
-## Multi-GPU (distributed) and Automatic Mixed Precision Training
-1. `python -m multiproc train.py --output_directory=outdir --log_directory=logdir --hparams=distributed_run=True,fp16_run=True`
+>archive_fn = '/content/drive/My Drive/soundtools/data/audio-trimmed-22khz/Zecora.tar'
 
-## Inference demo
-1. Download our published [Tacotron 2] model
-2. Download our published [WaveGlow] model
-3. `jupyter notebook --ip=127.0.0.1 --port=31337`
-4. Load inference.ipynb 
+File names can be found here https://drive.google.com/drive/folders/11H3IoCeFnhHll0bzjUtC-njED5tCi78f
 
-N.b.  When performing Mel-Spectrogram to Audio synthesis, make sure Tacotron 2
-and the Mel decoder were trained on the same mel-spectrogram representation. 
+4. Click "runtime" in top-left, click "run all".
+The 2nd block will require you to copy/paste a google drive authentication code. Once that's done it, should go through every block without issue.
+Once the last block says
+>Starting Epoch: 0 Iteration: 0
+
+It has started training and you can go have a walk or whatever humans do.
+Roughly every hour, google will show a pop-up to check you're still there. Click "Reconnect to Runtime" or at some point it'll idle kick you.
+
+5. Your model will be saved inside a folder called "colab" in your google drive under the name "current_model"
+
+## Inference
+
 
 
 ## Related repos
