@@ -9,11 +9,11 @@ from text import cmudict
 custom = True
 
 _pad        = '_'
-_punctuation = '!\'(),.:;? '
+_punctuation = '!\'(),.:␤? '
 _special = '-'
 _letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
 if custom:
-  _custom ='☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲␤'
+  _custom ='☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲;'
 # ☺     = Anxious
 # ☻     = Happy
 # ♥     = Angry
