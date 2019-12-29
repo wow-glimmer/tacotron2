@@ -11,8 +11,9 @@ New options in hparams:
  - use_gaf (use gradient adaptive factor or not, to keep the max norm of gradients 
  from the taco_loss and mi_loss approximately equal)
  - max_gaf (maximum value of gradient adaptive factor)
- - drop_frame_rate (drop teacher-frocing input frames to a certain rate)
- 
+ - drop_frame_rate (drops input frames to a certain rate)
+ - p_teacher_forcing (probabilistically swaps full a window length with the self.prenet output instead of teacher_forcing)
+
 This code can pick up alignment at much earlier steps than the original version.
 
 Nvidia-Tacotron2 alignment refinement
