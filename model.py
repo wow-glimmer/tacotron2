@@ -7,6 +7,7 @@ from layers import ConvNorm, LinearNorm
 from utils import to_gpu, get_mask_from_lengths, dropout_frame
 from text.symbols import ctc_symbols
 
+drop_rate = 0.5
 
 class LocationLayer(nn.Module):
     def __init__(self, attention_n_filters, attention_kernel_size,
@@ -97,7 +98,7 @@ class Prenet(nn.Module):
 
     def forward(self, x):
         for linear in self.layers:
-            x = F.dropout(F.relu(linear(x)), p=0.5, training=True)
+            x = F.dropout(F.relu(linear(x)), p=drop_rate, training=True)
         return x
 
 
@@ -141,8 +142,8 @@ class Postnet(nn.Module):
 
     def forward(self, x):
         for i in range(len(self.convolutions) - 1):
-            x = F.dropout(torch.tanh(self.convolutions[i](x)), 0.5, self.training)
-        x = F.dropout(self.convolutions[-1](x), 0.5, self.training)
+            x = F.dropout(torch.tanh(self.convolutions[i](x)), drop_rate, self.training)
+        x = F.dropout(self.convolutions[-1](x), drop_rate, self.training)
 
         return x
 
@@ -152,6 +153,7 @@ class Encoder(nn.Module):
         - Three 1-d convolution banks
         - Bidirectional LSTM
     """
+
     def __init__(self, hparams):
         super(Encoder, self).__init__()
 
@@ -173,7 +175,7 @@ class Encoder(nn.Module):
 
     def forward(self, x, input_lengths):
         for conv in self.convolutions:
-            x = F.dropout(F.relu(conv(x)), 0.5, self.training)
+            x = F.dropout(F.relu(conv(x)), drop_rate, self.training)
 
         x = x.transpose(1, 2)
 
@@ -192,7 +194,7 @@ class Encoder(nn.Module):
 
     def inference(self, x):
         for conv in self.convolutions:
-            x = F.dropout(F.relu(conv(x)), 0.5, self.training)
+            x = F.dropout(F.relu(conv(x)), drop_rate, self.training)
 
         x = x.transpose(1, 2)
 
@@ -215,6 +217,7 @@ class Decoder(nn.Module):
         self.gate_threshold = hparams.gate_threshold
         self.p_attention_dropout = hparams.p_attention_dropout
         self.p_decoder_dropout = hparams.p_decoder_dropout
+        self.p_teacher_forcing = hparams.p_teacher_forcing
 
         self.prenet = Prenet(
             hparams.n_mel_channels * hparams.n_frames_per_step,
@@ -405,6 +408,7 @@ class Decoder(nn.Module):
         gate_outputs: gate outputs from the decoder
         alignments: sequence of attention weights from the decoder
         """
+
         decoder_input = self.get_go_frame(memory).unsqueeze(0)
         decoder_inputs = self.parse_decoder_inputs(decoder_inputs)
         decoder_inputs = torch.cat((decoder_input, decoder_inputs), dim=0)
@@ -415,9 +419,14 @@ class Decoder(nn.Module):
 
         decoder_outputs, mel_outputs, gate_outputs, alignments = [], [], [], []
         while len(mel_outputs) < decoder_inputs.size(0) - 1:
-            decoder_input = decoder_inputs[len(mel_outputs)]
+            if len(mel_outputs) == 0 or np.random.uniform(0.0, 1.0) <= self.p_teacher_forcing:
+                decoder_input = decoder_inputs[len(mel_outputs)]
+            else:
+                decoder_input = self.prenet(mel_outputs[-1])
+
             (decoder_output, mel_output, gate_output,
              attention_weights) = self.decode(decoder_input)
+
             decoder_outputs += [decoder_output.squeeze(1)]
             mel_outputs += [mel_output.squeeze(1)]
             gate_outputs += [gate_output.squeeze()]
