@@ -261,27 +261,16 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
                 taco_loss = loss
                 mi_loss = torch.tensor([-1.0])
                 gaf = -1.0
-            if hparams.distributed_run:
-                reduced_loss = reduce_tensor(loss.data, n_gpus).item()
-                taco_loss = reduce_tensor(taco_loss.data, n_gpus).item()
-                mi_loss = reduce_tensor(mi_loss.data, n_gpus).item()
-            else:
-                reduced_loss = loss.item()
-                taco_loss = taco_loss.item()
-                mi_loss = mi_loss.item()
+
+            if hparams.distributed_run: reduced_loss = reduce_tensor(loss.data, n_gpus).item(); taco_loss = reduce_tensor(taco_loss.data, n_gpus).item(); mi_loss = reduce_tensor(mi_loss.data, n_gpus).item()
+            else: reduced_loss = loss.item(); taco_loss = taco_loss.item(); mi_loss = mi_loss.item()
             if hparams.fp16_run:
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
                     scaled_loss.backward()
-            else:
-                loss.backward()
+            else: loss.backward()
 
-            if hparams.fp16_run:
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    amp.master_params(optimizer), hparams.grad_clip_thresh)
-                is_overflow = math.isnan(grad_norm)
-            else:
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), hparams.grad_clip_thresh)
+            if hparams.fp16_run: grad_norm = torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), hparams.grad_clip_thresh);  is_overflow = math.isnan(grad_norm)
+            else: grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hparams.grad_clip_thresh)
 
             optimizer.step()
 
