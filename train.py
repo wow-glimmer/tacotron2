@@ -222,7 +222,6 @@ def calculate_global_mean(data_loader, global_mean_npy):
     print('Done')
     return to_gpu((sum(sums) / sum(frames)).float())
 
-@profile
 def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
           rank, group_name, hparams, log_directory2):
     """Training and validation logging results to tensorboard and stdout
@@ -270,22 +269,6 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
     iteration = 0
     epoch_offset = 0
 
-    #if checkpoint_path is not None and os.path.isfile(checkpoint_path):
-    #    if warm_start:
-    #        model = warm_start_model(
-    #            checkpoint_path, model, hparams.ignore_layers)
-    #    else:
-    #        model, optimizer, _learning_rate, iteration = load_checkpoint(
-    #            checkpoint_path, model, optimizer)
-    #        if hparams.use_saved_learning_rate:
-    #            learning_rate = _learning_rate
-    #        iteration += 1  # next iteration is iteration + 1
-    #        epoch_offset = max(0, int(iteration / len(train_loader)))
-    #else:
-    #  os.path.isfile("pretrained_model")
-    #  download_from_google_drive("1c5ZTuT7J08wLUoVZ2KkUs_VdZuJ86ZqA","pretrained_model")
-    #  model = warm_start_model("pretrained_model", model, hparams.ignore_layers)
-    #  # download LJSpeech pretrained model if no checkpoint already exists
     gc.collect()
     
     start_eposh = time.perf_counter()
@@ -382,8 +365,8 @@ min_learning_rate = 1e-5    # Min Learning Rate
 
 # Quality of Life
 model_filename = 'current_model'
-generate_mels = True
-hparams.show_alignments = True
+generate_mels = 0
+hparams.show_alignments = 0
 
 # Audio Parameters
 hparams.sampling_rate=48000
@@ -394,7 +377,7 @@ hparams.n_mel_channels=80
 hparams.mel_fmin=0.0
 hparams.mel_fmax=18000.0
 
-hparams.batch_size = 10
+hparams.batch_size = 6
 hparams.load_mel_from_disk = True
 hparams.training_files = "filelists/clipper_train_filelist.txt"
 hparams.validation_files = "filelists/clipper_val_filelist.txt"
