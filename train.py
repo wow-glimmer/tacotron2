@@ -1,8 +1,11 @@
 import os
+if os.getcwd() != '/content/tacotron2':
+    os.chdir('tacotron2')
 import time
 import argparse
 import math
 import numpy as np
+import gc
 from numpy import finfo
 
 import torch
@@ -11,17 +14,53 @@ import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
 
-import gradient_adaptive_factor
 from model import Tacotron2
 from data_utils import TextMelLoader, TextMelCollate
 from loss_function import Tacotron2Loss
 from logger import Tacotron2Logger
 from hparams import create_hparams
 from utils import to_gpu
+import random
+import time
+from math import e
+
+from tqdm import tqdm_notebook as tqdm
+import layers
+from utils import load_wav_to_torch, load_filepaths_and_text
+import gradient_adaptive_factor
+from text import text_to_sequence
+from distutils.dir_util import copy_tree
+import matplotlib.pylab as plt
+from scipy.io.wavfile import read
+
+def create_mels():
+    print("Generating Mels")
+    stft = layers.TacotronSTFT(
+                hparams.filter_length, hparams.hop_length, hparams.win_length,
+                hparams.n_mel_channels, hparams.sampling_rate, hparams.mel_fmin,
+                hparams.mel_fmax)
+    def save_mel(file):
+        audio, sampling_rate = load_wav_to_torch(file)
+        if sampling_rate != stft.sampling_rate:
+            raise ValueError("{} {} SR doesn't match target {} SR".format(file, 
+                sampling_rate, stft.sampling_rate))
+        audio_norm = audio / hparams.max_wav_value
+        audio_norm = audio_norm.unsqueeze(0)
+        audio_norm = torch.autograd.Variable(audio_norm, requires_grad=False)
+        melspec = stft.mel_spectrogram(audio_norm)
+        melspec = torch.squeeze(melspec, 0).cpu().numpy()
+        np.save(file.replace('.wav', ''), melspec)
+
+    import glob
+    wavs = glob.glob('wavs/out/*.wav')
+    for i in tqdm(wavs):
+        save_mel(i)
+    stft = None
 
 
 def reduce_tensor(tensor, n_gpus):
     rt = tensor.clone()
+    #dist.all_reduce(rt, op=dist.ReduceOp.SUM) # Updated ReduceOp, needs to be tested
     dist.all_reduce(rt, op=dist.reduce_op.SUM)
     rt /= n_gpus
     return rt
@@ -111,7 +150,6 @@ def load_checkpoint(checkpoint_path, model, optimizer):
         checkpoint_path, iteration))
     return model, optimizer, learning_rate, iteration
 
-
 def save_checkpoint(model, optimizer, learning_rate, iteration, filepath):
     print("Saving model and optimizer state at iteration {} to {}".format(
         iteration, filepath))
@@ -120,9 +158,23 @@ def save_checkpoint(model, optimizer, learning_rate, iteration, filepath):
                 'optimizer': optimizer.state_dict(),
                 'learning_rate': learning_rate}, filepath)
 
+def plot_alignment(alignment, info=None):
+    fig, ax = plt.subplots(figsize=(6, 4))
+    im = ax.imshow(alignment, cmap='inferno', aspect='auto', origin='lower',
+                   interpolation='none')
+    ax.autoscale(enable=True, axis="y", tight=True)
+    fig.colorbar(im, ax=ax)
+    xlabel = 'Decoder timestep'
+    if info is not None:
+        xlabel += '\n\n' + info
+    plt.xlabel(xlabel)
+    plt.ylabel('Encoder timestep')
+    plt.tight_layout()
+    fig.canvas.draw()
+    plt.show()
 
 def validate(model, criterion, valset, iteration, batch_size, n_gpus,
-             collate_fn, logger, distributed_run, rank):
+             collate_fn, logger, distributed_run, rank, epoch, start_eposh, learning_rate):
     """Handles all the validation scoring and printing"""
     model.eval()
     with torch.no_grad():
@@ -145,9 +197,12 @@ def validate(model, criterion, valset, iteration, batch_size, n_gpus,
 
     model.train()
     if rank == 0:
-        print("Validation loss {}: {:9f}  ".format(iteration, reduced_val_loss))
-        logger.log_validation(val_loss, model, y, y_pred, iteration)
-
+        print("Epoch: {} Validation loss {}: {:9f}  Time: {:.1f}m LR: {:.6f}".format(epoch, iteration, reduced_val_loss,(time.perf_counter()-start_eposh)/60, learning_rate))
+        logger.log_validation(reduced_val_loss, model, y, y_pred, iteration)
+        if hparams.show_alignments:
+            _, _, mel_outputs, gate_outputs, alignments = y_pred
+            idx = random.randint(0, alignments.size(0) - 1)
+            plot_alignment(alignments[idx].data.cpu().numpy().T,"Validation Loss: "+str(reduced_val_loss))
 
 def calculate_global_mean(data_loader, global_mean_npy):
     if global_mean_npy and os.path.exists(global_mean_npy):
@@ -162,15 +217,14 @@ def calculate_global_mean(data_loader, global_mean_npy):
         # padded values are 0.
         sums.append(mel_padded.double().sum(dim=(0, 2)))
         frames.append(output_lengths.double().sum())
-    global_mean = sum(sums) / sum(frames)
-    global_mean = to_gpu(global_mean.float())
-    if global_mean_npy:
-        np.save(global_mean_npy, global_mean.cpu().numpy())
-    return global_mean
+    #if global_mean_npy:
+    #    np.save(global_mean_npy, global_mean.cpu().numpy())
+    print('Done')
+    return to_gpu((sum(sums) / sum(frames)).float())
 
-
+@profile
 def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
-          rank, group_name, hparams):
+          rank, group_name, hparams, log_directory2):
     """Training and validation logging results to tensorboard and stdout
 
     Params
@@ -192,6 +246,7 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
     if hparams.drop_frame_rate > 0.:
         global_mean = calculate_global_mean(train_loader, hparams.global_mean_npy)
         hparams.global_mean = global_mean
+    gc.collect()
 
     model = load_model(hparams)
     learning_rate = hparams.learning_rate
@@ -211,29 +266,40 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
     logger = prepare_directories_and_logger(
         output_directory, log_directory, rank)
 
-
     # Load checkpoint if one exists
     iteration = 0
     epoch_offset = 0
-    if checkpoint_path is not None:
-        if warm_start:
-            model = warm_start_model(
-                checkpoint_path, model, hparams.ignore_layers)
-        else:
-            model, optimizer, _learning_rate, iteration = load_checkpoint(
-                checkpoint_path, model, optimizer)
-            if hparams.use_saved_learning_rate:
-                learning_rate = _learning_rate
-            iteration += 1  # next iteration is iteration + 1
-            epoch_offset = max(0, int(iteration / len(train_loader)))
 
+    #if checkpoint_path is not None and os.path.isfile(checkpoint_path):
+    #    if warm_start:
+    #        model = warm_start_model(
+    #            checkpoint_path, model, hparams.ignore_layers)
+    #    else:
+    #        model, optimizer, _learning_rate, iteration = load_checkpoint(
+    #            checkpoint_path, model, optimizer)
+    #        if hparams.use_saved_learning_rate:
+    #            learning_rate = _learning_rate
+    #        iteration += 1  # next iteration is iteration + 1
+    #        epoch_offset = max(0, int(iteration / len(train_loader)))
+    #else:
+    #  os.path.isfile("pretrained_model")
+    #  download_from_google_drive("1c5ZTuT7J08wLUoVZ2KkUs_VdZuJ86ZqA","pretrained_model")
+    #  model = warm_start_model("pretrained_model", model, hparams.ignore_layers)
+    #  # download LJSpeech pretrained model if no checkpoint already exists
+    gc.collect()
+    
+    start_eposh = time.perf_counter()
     model.train()
     is_overflow = False
     # ================ MAIN TRAINNIG LOOP! ===================
-    for epoch in range(epoch_offset, hparams.epochs):
-        print("Epoch: {}".format(epoch))
-        for i, batch in enumerate(train_loader):
+    for epoch in tqdm(range(epoch_offset, hparams.epochs),desc="Epoch: "):
+        gc.collect(); print("\nStarting Epoch: {} Iteration: {}".format(epoch, iteration))
+        start_eposh = time.perf_counter() # eposh is russian, not a typo
+        for i, batch in tqdm(enumerate(train_loader), total=len(train_loader)):
             start = time.perf_counter()
+            if iteration < decay_start: learning_rate = A_
+            else: iteration_adjusted = iteration - decay_start; learning_rate = (A_*(e**(-iteration_adjusted/B_))) + C_
+            learning_rate = max(min_learning_rate, learning_rate) # output the largest number
             for param_group in optimizer.param_groups:
                 param_group['lr'] = learning_rate
 
@@ -276,56 +342,79 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
 
             if not is_overflow and rank == 0:
                 duration = time.perf_counter() - start
-                print("Train loss {} {:.4f} mi_loss {:.4f} Grad Norm {:.4f} "
-                      "gaf {:.4f} {:.2f}s/it".format(
-                    iteration, taco_loss, mi_loss, grad_norm, gaf, duration))
                 logger.log_training(
-                    reduced_loss, taco_loss, mi_loss, grad_norm, gaf,
-                    learning_rate, duration, iteration)
-
-            if not is_overflow and (iteration % hparams.iters_per_checkpoint == 0):
-                validate(model, criterion, valset, iteration,
-                         hparams.batch_size, n_gpus, collate_fn, logger,
-                         hparams.distributed_run, rank)
-                if rank == 0:
-                    checkpoint_path = os.path.join(
-                        output_directory, "checkpoint_{}".format(iteration))
-                    save_checkpoint(model, optimizer, learning_rate, iteration,
-                                    checkpoint_path)
+                    reduced_loss, taco_loss, mi_loss, grad_norm, gaf, learning_rate, duration, iteration)
+                #print("Batch {} loss {:.6f} Grad Norm {:.6f} Time {:.6f}".format(iteration, reduced_loss, grad_norm, duration), end='\r', flush=True)
 
             iteration += 1
+        validate(model, criterion, valset, iteration,
+                 hparams.batch_size, n_gpus, collate_fn, logger,
+                 hparams.distributed_run, rank, epoch, start_eposh, learning_rate)
+        save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path)
+        if log_directory2 != None:
+            copy_tree(log_directory, log_directory2)
 
+warm_start=False
+n_gpus=1
+rank=0
+group_name=None
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-o', '--output_directory', type=str,
-                        help='directory to save checkpoints')
-    parser.add_argument('-l', '--log_directory', type=str,
-                        help='directory to save tensorboard logs')
-    parser.add_argument('-c', '--checkpoint_path', type=str, default=None,
-                        required=False, help='checkpoint path')
-    parser.add_argument('--warm_start', action='store_true',
-                        help='load model weights only, ignore specified layers')
-    parser.add_argument('--n_gpus', type=int, default=1,
-                        required=False, help='number of gpus')
-    parser.add_argument('--rank', type=int, default=0,
-                        required=False, help='rank of current gpu')
-    parser.add_argument('--group_name', type=str, default='group_name',
-                        required=False, help='Distributed group name')
-    parser.add_argument('--hparams', type=str,
-                        required=False, help='comma separated name=value pairs')
+hparams = create_hparams()
 
-    args = parser.parse_args()
-    hparams = create_hparams(args.hparams)
+# hparams to Tune
+gradient_adaptive_factor.UPDATE_GAF_EVERY_N_STEP = 10
+hparams.use_mmi=True
+hparams.use_gaf=True
+hparams.max_gaf=0.5
+hparams.drop_frame_rate = 0.0
+hparams.p_teacher_forcing=1.0 # not working right now
 
-    torch.backends.cudnn.enabled = hparams.cudnn_enabled
-    torch.backends.cudnn.benchmark = hparams.cudnn_benchmark
+# Dropout                   # https://pytorch.org/assets/images/tacotron2_diagram.png <-- orange = decoder
+hparams.p_attention_dropout=0.1
+hparams.p_decoder_dropout=0.1
 
-    print("FP16 Run:", hparams.fp16_run)
-    print("Dynamic Loss Scaling:", hparams.dynamic_loss_scaling)
-    print("Distributed Run:", hparams.distributed_run)
-    print("cuDNN Enabled:", hparams.cudnn_enabled)
-    print("cuDNN Benchmark:", hparams.cudnn_benchmark)
+# Learning Rate             # https://www.desmos.com/calculator/ptgcz4vzsw / http://boards.4channel.org/mlp/thread/34778298#p34789030
+decay_start = 15000         # wait till decay_start to start decaying learning rate
+A_ = 5e-4                   # Start/Max Learning Rate
+B_ = 8000                   # Decay Rate
+C_ = 0                      # Shift learning rate equation by this value
+min_learning_rate = 1e-5    # Min Learning Rate
 
-    train(args.output_directory, args.log_directory, args.checkpoint_path,
-          args.warm_start, args.n_gpus, args.rank, args.group_name, hparams)
+# Quality of Life
+model_filename = 'current_model'
+generate_mels = True
+hparams.show_alignments = True
+
+# Audio Parameters
+hparams.sampling_rate=48000
+hparams.filter_length=2400
+hparams.hop_length=600
+hparams.win_length=2400
+hparams.n_mel_channels=80
+hparams.mel_fmin=0.0
+hparams.mel_fmax=18000.0
+
+hparams.batch_size = 10
+hparams.load_mel_from_disk = True
+hparams.training_files = "filelists/clipper_train_filelist.txt"
+hparams.validation_files = "filelists/clipper_val_filelist.txt"
+hparams.ignore_layers = []
+hparams.epochs = 1
+
+torch.backends.cudnn.enabled = hparams.cudnn_enabled
+torch.backends.cudnn.benchmark = hparams.cudnn_benchmark
+print('FP16 Run:', hparams.fp16_run)
+print('Dynamic Loss Scaling:', hparams.dynamic_loss_scaling)
+print('Distributed Run:', hparams.distributed_run)
+print('cuDNN Enabled:', hparams.cudnn_enabled)
+print('cuDNN Benchmark:', hparams.cudnn_benchmark)
+
+output_directory = '/content/drive/My Drive/colab/outdir'
+log_directory = '/content/tacotron2/logs'
+checkpoint_path = output_directory+(r'/')+model_filename
+log_directory2 = '/content/drive/My Drive/colab/logs'
+
+if generate_mels:
+    create_mels(); gc.collect()
+train(output_directory, log_directory, checkpoint_path,
+      warm_start, n_gpus, rank, group_name, hparams, log_directory2)
