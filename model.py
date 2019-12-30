@@ -239,13 +239,13 @@ class Decoder(nn.Module):
             LinearNorm(hparams.decoder_rnn_dim + hparams.encoder_embedding_dim,
                        hparams.decoder_rnn_dim, bias=True, w_init_gain='relu'),
             nn.ReLU(),
-            nn.Dropout(p=0.1)
+            nn.Dropout(p=0.2)
         )
 
         self.mel_layer = nn.Sequential(
             LinearNorm(hparams.decoder_rnn_dim, hparams.decoder_rnn_dim, bias=True, w_init_gain='relu'),
             nn.ReLU(),
-            nn.Dropout(p=0.1),
+            nn.Dropout(p=0.2),
             LinearNorm(hparams.decoder_rnn_dim, hparams.n_mel_channels * hparams.n_frames_per_step)
         )
 
