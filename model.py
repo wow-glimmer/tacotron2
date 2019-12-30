@@ -8,7 +8,6 @@ from layers import ConvNorm, LinearNorm
 from utils import to_gpu, get_mask_from_lengths, dropout_frame
 from text.symbols import ctc_symbols
 
-drop_rate = 0.5
 
 class LocationLayer(nn.Module):
     def __init__(self, attention_n_filters, attention_kernel_size,
@@ -99,7 +98,7 @@ class Prenet(nn.Module):
 
     def forward(self, x):
         for linear in self.layers:
-            x = F.dropout(F.relu(linear(x)), p=drop_rate, training=True)
+            x = F.dropout(F.relu(linear(x)), p=0.5, training=True)
         return x
 
 
@@ -143,8 +142,8 @@ class Postnet(nn.Module):
 
     def forward(self, x):
         for i in range(len(self.convolutions) - 1):
-            x = F.dropout(torch.tanh(self.convolutions[i](x)), drop_rate, self.training)
-        x = F.dropout(self.convolutions[-1](x), drop_rate, self.training)
+            x = F.dropout(torch.tanh(self.convolutions[i](x)), 0.5, self.training)
+        x = F.dropout(self.convolutions[-1](x), 0.5, self.training)
 
         return x
 
@@ -154,7 +153,6 @@ class Encoder(nn.Module):
         - Three 1-d convolution banks
         - Bidirectional LSTM
     """
-
     def __init__(self, hparams):
         super(Encoder, self).__init__()
 
@@ -176,7 +174,7 @@ class Encoder(nn.Module):
 
     def forward(self, x, input_lengths):
         for conv in self.convolutions:
-            x = F.dropout(F.relu(conv(x)), drop_rate, self.training)
+            x = F.dropout(F.relu(conv(x)), 0.5, self.training)
 
         x = x.transpose(1, 2)
 
@@ -195,7 +193,7 @@ class Encoder(nn.Module):
 
     def inference(self, x):
         for conv in self.convolutions:
-            x = F.dropout(F.relu(conv(x)), drop_rate, self.training)
+            x = F.dropout(F.relu(conv(x)), 0.5, self.training)
 
         x = x.transpose(1, 2)
 
@@ -241,13 +239,13 @@ class Decoder(nn.Module):
             LinearNorm(hparams.decoder_rnn_dim + hparams.encoder_embedding_dim,
                        hparams.decoder_rnn_dim, bias=True, w_init_gain='relu'),
             nn.ReLU(),
-            nn.Dropout(p=0.5)
+            nn.Dropout(p=0.1)
         )
 
         self.mel_layer = nn.Sequential(
             LinearNorm(hparams.decoder_rnn_dim, hparams.decoder_rnn_dim, bias=True, w_init_gain='relu'),
             nn.ReLU(),
-            nn.Dropout(p=0.5),
+            nn.Dropout(p=0.1),
             LinearNorm(hparams.decoder_rnn_dim, hparams.n_mel_channels * hparams.n_frames_per_step)
         )
 
@@ -409,7 +407,6 @@ class Decoder(nn.Module):
         gate_outputs: gate outputs from the decoder
         alignments: sequence of attention weights from the decoder
         """
-
         decoder_input = self.get_go_frame(memory).unsqueeze(0)
         decoder_inputs = self.parse_decoder_inputs(decoder_inputs)
         decoder_inputs = torch.cat((decoder_input, decoder_inputs), dim=0)
@@ -420,11 +417,7 @@ class Decoder(nn.Module):
 
         decoder_outputs, mel_outputs, gate_outputs, alignments = [], [], [], []
         while len(mel_outputs) < decoder_inputs.size(0) - 1:
-            if len(mel_outputs) == 0 or np.random.uniform(0.0, 1.0) <= self.p_teacher_forcing:
-                decoder_input = decoder_inputs[len(mel_outputs)]
-            else:
-                decoder_input = self.prenet(mel_outputs[-1])
-
+            decoder_input = decoder_inputs[len(mel_outputs)]
             (decoder_output, mel_output, gate_output,
              attention_weights) = self.decode(decoder_input)
 
