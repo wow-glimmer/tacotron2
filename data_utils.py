@@ -30,7 +30,6 @@ class TextMelLoader(torch.utils.data.Dataset):
     def get_mel_text_pair(self, audiopath_and_text):
         # separate filename and text
         audiopath, text = audiopath_and_text[0], audiopath_and_text[1]
-        print(text)
         text, ctc_text = self.get_text(text)
         mel = self.get_mel(audiopath)
         return (text, ctc_text, mel)
@@ -58,7 +57,6 @@ class TextMelLoader(torch.utils.data.Dataset):
         sequence = text_to_sequence(text, self.text_cleaners)
         text_norm = torch.IntTensor(sequence)
         ctc_text_norm = torch.IntTensor(sequence_to_ctc_sequence(sequence))
-        print(ctc_text_norm)
         return text_norm, ctc_text_norm
 
     def __getitem__(self, index):
