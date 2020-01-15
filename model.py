@@ -230,6 +230,7 @@ class Decoder(nn.Module):
         self.gate_threshold = hparams.gate_threshold
         self.p_attention_dropout = hparams.p_attention_dropout
         self.p_decoder_dropout = hparams.p_decoder_dropout
+        self.p_teacher_forcing = hparams.p_teacher_forcing
         
         self.prenet = Prenet(
             hparams.n_mel_channels * hparams.n_frames_per_step,
@@ -448,7 +449,10 @@ class Decoder(nn.Module):
 
         decoder_outputs, mel_outputs, gate_outputs, alignments = [], [], [], []
         while len(mel_outputs) < decoder_inputs.size(0) - 1:
-            decoder_input = decoder_inputs[len(mel_outputs)]
+            if len(mel_outputs) == 0 or np.random.uniform(0.0, 1.0) <= self.p_teacher_forcing:
+                decoder_input = decoder_inputs[len(mel_outputs)] # use all-in-one processed output for next step
+            else:
+                decoder_input = self.prenet(mel_outputs[-1]) # use last output for next step (like inference)
             
             (decoder_output, mel_output, gate_output,
              attention_weights) = self.decode(decoder_input)
