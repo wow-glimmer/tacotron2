@@ -9,7 +9,7 @@ from layers import ConvNorm, LinearNorm
 from utils import to_gpu, get_mask_from_lengths, dropout_frame
 from text.symbols import ctc_symbols
 #from modules import GST # mellotron GST implementation
-from PTGST import GST # Other GST implementation
+from TPGST import GST # Other GST implementation
 
 drop_rate = 0.5
 

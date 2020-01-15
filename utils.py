@@ -37,6 +37,17 @@ def load_filepaths_and_text(filename, split="|"):
     return filepaths_and_text
 
 
+def files_to_list(filename):
+    """
+    Takes a text file of filenames and makes a list of filenames
+    """
+    with open(filename, encoding='utf-8') as f:
+        files = f.readlines()
+
+    files = [f.rstrip() for f in files]
+    return files
+
+
 def to_gpu(x):
     x = x.contiguous()
 
