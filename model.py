@@ -1,4 +1,6 @@
 from math import sqrt
+import numpy as np
+from numpy import finfo
 import torch
 from torch.autograd import Variable
 from torch import nn
@@ -6,6 +8,17 @@ from torch.nn import functional as F
 from layers import ConvNorm, LinearNorm
 from utils import to_gpu, get_mask_from_lengths, dropout_frame
 from text.symbols import ctc_symbols
+#from modules import GST # mellotron GST implementation
+from PTGST import GST # Other GST implementation
+
+drop_rate = 0.5
+
+def load_model(hparams):
+    model = Tacotron2(hparams).cuda()
+    if hparams.fp16_run:
+        model.decoder.attention_layer.score_mask_value = finfo('float16').min
+
+    return model
 
 
 class LocationLayer(nn.Module):
@@ -64,7 +77,7 @@ class Attention(nn.Module):
         return energies
 
     def forward(self, attention_hidden_state, memory, processed_memory,
-                attention_weights_cat, mask):
+                attention_weights_cat, mask, attention_weights=None):
         """
         PARAMS
         ------
@@ -74,13 +87,14 @@ class Attention(nn.Module):
         attention_weights_cat: previous and cummulative attention weights
         mask: binary mask for padded data
         """
-        alignment = self.get_alignment_energies(
-            attention_hidden_state, processed_memory, attention_weights_cat)
+        if attention_weights is None:
+            alignment = self.get_alignment_energies(
+                attention_hidden_state, processed_memory, attention_weights_cat)
 
-        if mask is not None:
-            alignment.data.masked_fill_(mask, self.score_mask_value)
+            if mask is not None:
+                alignment.data.masked_fill_(mask, self.score_mask_value)
 
-        attention_weights = F.softmax(alignment, dim=1)
+            attention_weights = F.softmax(alignment, dim=1)
         attention_context = torch.bmm(attention_weights.unsqueeze(1), memory)
         attention_context = attention_context.squeeze(1)
 
@@ -97,7 +111,7 @@ class Prenet(nn.Module):
 
     def forward(self, x):
         for linear in self.layers:
-            x = F.dropout(F.relu(linear(x)), p=0.5, training=True)
+            x = F.dropout(F.relu(linear(x)), p=drop_rate, training=True)
         return x
 
 
@@ -141,8 +155,8 @@ class Postnet(nn.Module):
 
     def forward(self, x):
         for i in range(len(self.convolutions) - 1):
-            x = F.dropout(torch.tanh(self.convolutions[i](x)), 0.5, self.training)
-        x = F.dropout(self.convolutions[-1](x), 0.5, self.training)
+            x = F.dropout(torch.tanh(self.convolutions[i](x)), drop_rate, self.training)
+        x = F.dropout(self.convolutions[-1](x), drop_rate, self.training)
 
         return x
 
@@ -152,6 +166,7 @@ class Encoder(nn.Module):
         - Three 1-d convolution banks
         - Bidirectional LSTM
     """
+
     def __init__(self, hparams):
         super(Encoder, self).__init__()
 
@@ -173,7 +188,7 @@ class Encoder(nn.Module):
 
     def forward(self, x, input_lengths):
         for conv in self.convolutions:
-            x = F.dropout(F.relu(conv(x)), 0.5, self.training)
+            x = F.dropout(F.relu(conv(x)), drop_rate, self.training)
 
         x = x.transpose(1, 2)
 
@@ -192,7 +207,7 @@ class Encoder(nn.Module):
 
     def inference(self, x):
         for conv in self.convolutions:
-            x = F.dropout(F.relu(conv(x)), 0.5, self.training)
+            x = F.dropout(F.relu(conv(x)), drop_rate, self.training)
 
         x = x.transpose(1, 2)
 
@@ -207,7 +222,7 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.n_mel_channels = hparams.n_mel_channels
         self.n_frames_per_step = hparams.n_frames_per_step
-        self.encoder_embedding_dim = hparams.encoder_embedding_dim
+        self.encoder_embedding_dim = hparams.encoder_embedding_dim + hparams.token_embedding_size + hparams.speaker_embedding_dim
         self.attention_rnn_dim = hparams.attention_rnn_dim
         self.decoder_rnn_dim = hparams.decoder_rnn_dim
         self.prenet_dim = hparams.prenet_dim
@@ -215,41 +230,38 @@ class Decoder(nn.Module):
         self.gate_threshold = hparams.gate_threshold
         self.p_attention_dropout = hparams.p_attention_dropout
         self.p_decoder_dropout = hparams.p_decoder_dropout
-        self.p_teacher_forcing = hparams.p_teacher_forcing
-
+        
         self.prenet = Prenet(
             hparams.n_mel_channels * hparams.n_frames_per_step,
             [hparams.prenet_dim, hparams.prenet_dim])
-
+        
         self.attention_rnn = nn.LSTMCell(
-            hparams.prenet_dim + hparams.encoder_embedding_dim,
+            hparams.prenet_dim + self.encoder_embedding_dim,
             hparams.attention_rnn_dim)
-
+        
         self.attention_layer = Attention(
-            hparams.attention_rnn_dim, hparams.encoder_embedding_dim,
+            hparams.attention_rnn_dim, self.encoder_embedding_dim,
             hparams.attention_dim, hparams.attention_location_n_filters,
             hparams.attention_location_kernel_size)
-
+        
         self.decoder_rnn = nn.LSTMCell(
-            hparams.attention_rnn_dim + hparams.encoder_embedding_dim,
+            hparams.attention_rnn_dim + self.encoder_embedding_dim,
             hparams.decoder_rnn_dim, 1)
-
-        self.linear_projection = nn.Sequential(
-            LinearNorm(hparams.decoder_rnn_dim + hparams.encoder_embedding_dim,
-                       hparams.decoder_rnn_dim, bias=True, w_init_gain='relu'),
-            nn.ReLU(),
-            nn.Dropout(p=0.2)
-        )
-
+        
+        self.linear_projection = LinearNorm(
+            hparams.decoder_rnn_dim + self.encoder_embedding_dim,
+            hparams.decoder_rnn_dim)
+        
         self.mel_layer = nn.Sequential(
             LinearNorm(hparams.decoder_rnn_dim, hparams.decoder_rnn_dim, bias=True, w_init_gain='relu'),
             nn.ReLU(),
-            nn.Dropout(p=0.2),
+            nn.Dropout(p=0.1),
             LinearNorm(hparams.decoder_rnn_dim, hparams.n_mel_channels * hparams.n_frames_per_step)
         )
-
+        
         self.gate_layer = LinearNorm(
-            hparams.decoder_rnn_dim, 1, bias=True, w_init_gain='sigmoid')
+            hparams.decoder_rnn_dim + self.encoder_embedding_dim, 1,
+            bias=True, w_init_gain='sigmoid')
 
     def get_go_frame(self, memory):
         """ Gets all zeros frames to use as first decoder input
@@ -335,8 +347,14 @@ class Decoder(nn.Module):
         """
         # (T_out, B) -> (B, T_out)
         alignments = torch.stack(alignments).transpose(0, 1)
+
         # (T_out, B) -> (B, T_out)
-        gate_outputs = torch.stack(gate_outputs).transpose(0, 1)
+        gate_outputs = torch.stack(gate_outputs)
+        if len(gate_outputs.size()) > 1:
+            gate_outputs = gate_outputs.transpose(0, 1)
+        else:
+            gate_outputs = gate_outputs[None]
+
         gate_outputs = gate_outputs.contiguous()
         # (T_out, B, n_mel_channels) -> (B, T_out, n_mel_channels)
         mel_outputs = torch.stack(mel_outputs).transpose(0, 1).contiguous()
@@ -348,7 +366,6 @@ class Decoder(nn.Module):
 
         decoder_outputs = torch.stack(decoder_outputs).transpose(0, 1).contiguous()
         decoder_outputs = decoder_outputs.transpose(1, 2)
-
         return decoder_outputs, mel_outputs, gate_outputs, alignments
 
     def decode(self, decoder_input):
@@ -364,39 +381,49 @@ class Decoder(nn.Module):
         attention_weights:
         """
         cell_input = torch.cat((decoder_input, self.attention_context), -1)
+        
         self.attention_hidden, self.attention_cell = self.attention_rnn(
             cell_input, (self.attention_hidden, self.attention_cell))
+        
         self.attention_hidden = F.dropout(
             self.attention_hidden, self.p_attention_dropout, self.training)
-
+        
         attention_weights_cat = torch.cat(
             (self.attention_weights.unsqueeze(1),
              self.attention_weights_cum.unsqueeze(1)), dim=1)
+        
         self.attention_context, self.attention_weights = self.attention_layer(
             self.attention_hidden, self.memory, self.processed_memory,
             attention_weights_cat, self.mask)
-
+        
         self.attention_weights_cum += self.attention_weights
+        
         decoder_input = torch.cat(
             (self.attention_hidden, self.attention_context), -1)
+        
         self.decoder_hidden, self.decoder_cell = self.decoder_rnn(
             decoder_input, (self.decoder_hidden, self.decoder_cell))
+        
         self.decoder_hidden = F.dropout(
             self.decoder_hidden, self.p_decoder_dropout, self.training)
-
+        
         decoder_hidden_attention_context = torch.cat(
             (self.decoder_hidden, self.attention_context), dim=1)
+        
         decoder_output = self.linear_projection(
             decoder_hidden_attention_context)
+        
         mel_output = self.mel_layer(decoder_output)
-        gate_prediction = self.gate_layer(decoder_output)
+        
+        gate_prediction = self.gate_layer(decoder_hidden_attention_context)
+
         return decoder_output, mel_output, gate_prediction, self.attention_weights
 
     def forward(self, memory, decoder_inputs, memory_lengths):
         """ Decoder forward pass for training
         PARAMS
         ------
-        memory: Encoder outputs
+        memory: Encoder outputs # (B, T_out, (embedded_speakers, embedded_gst, embedded_text))
         decoder_inputs: Decoder inputs for teacher forcing. i.e. mel-specs
         memory_lengths: Encoder output lengths for attention masking.
 
@@ -407,9 +434,14 @@ class Decoder(nn.Module):
         alignments: sequence of attention weights from the decoder
         """
         decoder_input = self.get_go_frame(memory).unsqueeze(0)
+        # memory -> (1, B, mel_channels) <- which is all 0's
+        
         decoder_inputs = self.parse_decoder_inputs(decoder_inputs)
-        decoder_inputs = torch.cat((decoder_input, decoder_inputs), dim=0)
-        decoder_inputs = self.prenet(decoder_inputs)
+        # (B, mel_channels, T_out) -> (T_out, B, mel_channels)
+        
+        decoder_inputs = torch.cat((decoder_input, decoder_inputs), dim=0) # concat T_out
+        
+        decoder_inputs = self.prenet(decoder_inputs) # some linear layers
 
         self.initialize_decoder_states(
             memory, mask=~get_mask_from_lengths(memory_lengths))
@@ -417,9 +449,10 @@ class Decoder(nn.Module):
         decoder_outputs, mel_outputs, gate_outputs, alignments = [], [], [], []
         while len(mel_outputs) < decoder_inputs.size(0) - 1:
             decoder_input = decoder_inputs[len(mel_outputs)]
+            
             (decoder_output, mel_output, gate_output,
              attention_weights) = self.decode(decoder_input)
-
+            
             decoder_outputs += [decoder_output.squeeze(1)]
             mel_outputs += [mel_output.squeeze(1)]
             gate_outputs += [gate_output.squeeze()]
@@ -449,6 +482,7 @@ class Decoder(nn.Module):
         decoder_outputs, mel_outputs, gate_outputs, alignments = [], [], [], []
         while True:
             decoder_input = self.prenet(decoder_input)
+
             decoder_output, mel_output, gate_output, alignment = self.decode(decoder_input)
 
             decoder_outputs += [decoder_output.squeeze(1)]
@@ -498,6 +532,7 @@ class Tacotron2(nn.Module):
         self.fp16_run = hparams.fp16_run
         self.n_mel_channels = hparams.n_mel_channels
         self.n_frames_per_step = hparams.n_frames_per_step
+        self.token_num = hparams.token_num
         self.embedding = nn.Embedding(
             hparams.n_symbols, hparams.symbols_embedding_dim)
         std = sqrt(2.0 / (hparams.n_symbols + hparams.symbols_embedding_dim))
@@ -506,6 +541,10 @@ class Tacotron2(nn.Module):
         self.encoder = Encoder(hparams)
         self.decoder = Decoder(hparams)
         self.postnet = Postnet(hparams)
+        if hparams.with_gst:
+            self.gst = GST(hparams)
+        self.speaker_embedding = nn.Embedding(
+            hparams.n_speakers, hparams.speaker_embedding_dim)
         self.drop_frame_rate = hparams.drop_frame_rate
         self.use_mmi = hparams.use_mmi
         if self.drop_frame_rate > 0.:
@@ -520,20 +559,28 @@ class Tacotron2(nn.Module):
 
     def parse_batch(self, batch):
         text_padded, input_lengths, mel_padded, gate_padded, \
-            output_lengths, ctc_text, ctc_text_lengths = batch
-        text_padded = to_gpu(text_padded).long()
-        input_lengths = to_gpu(input_lengths).long()
-        max_len = torch.max(input_lengths.data).item()
-        mel_padded = to_gpu(mel_padded).float()
+            output_lengths, ctc_text, ctc_text_lengths, speaker_ids = batch
+        
+        # used for training (and mels also do validation)
+        input_lengths = to_gpu(input_lengths).long() # text_lengths
+        output_lengths = to_gpu(output_lengths).long() # output_lengths
+        text_padded = to_gpu(text_padded).long() # text_inputs
+        speaker_ids = to_gpu(speaker_ids.data).long() # speaker_ids
+        mel_padded = to_gpu(mel_padded).float() # mels
+        max_len = torch.max(input_lengths.data).item() # max_len
+        
+        # used by loss function
         gate_padded = to_gpu(gate_padded).float()
-        output_lengths = to_gpu(output_lengths).long()
+        
+        # used by model.mi
         ctc_text = to_gpu(ctc_text).long()
         ctc_text_lengths = to_gpu(ctc_text_lengths).long()
 
         return (
             (text_padded, input_lengths, mel_padded, max_len, output_lengths,
-             ctc_text, ctc_text_lengths),
+             ctc_text, ctc_text_lengths, speaker_ids),
             (mel_padded, gate_padded))
+            # returns ((x),(y)) as (x) for training input, (y) for ground truth/loss calc
 
     def parse_output(self, outputs, output_lengths=None):
         if self.mask_padding and output_lengths is not None:
@@ -547,11 +594,10 @@ class Tacotron2(nn.Module):
             outputs[1].data.masked_fill_(mel_mask, 0.0)
             outputs[2].data.masked_fill_(mel_mask, 0.0)
             outputs[3].data.masked_fill_(mel_mask[:, 0, :], 1e3)  # gate energies
-
         return outputs
 
     def forward(self, inputs):
-        text_inputs, text_lengths, mels, max_len, output_lengths, *_ = inputs
+        text_inputs, text_lengths, mels, max_len, output_lengths, *_, speaker_ids = inputs
         text_lengths, output_lengths = text_lengths.data, output_lengths.data
 
         if self.drop_frame_rate > 0. and self.training:
@@ -559,8 +605,15 @@ class Tacotron2(nn.Module):
             mels = dropout_frame(mels, self.global_mean, output_lengths, self.drop_frame_rate)
 
         embedded_inputs = self.embedding(text_inputs).transpose(1, 2)
+        embedded_text = self.encoder(embedded_inputs, text_lengths)
+        embedded_speakers = self.speaker_embedding(speaker_ids)[:, None]
+        embedded_gst = self.gst(mels)
+        embedded_gst = embedded_gst.repeat(1, embedded_text.size(1), 1)
+        embedded_speakers = embedded_speakers.repeat(1, embedded_text.size(1), 1)
 
-        encoder_outputs = self.encoder(embedded_inputs, text_lengths)
+
+        encoder_outputs = torch.cat(
+            (embedded_speakers, embedded_gst, embedded_text), dim=2)
 
         (decoder_outputs, mel_outputs, gate_outputs, alignments
          ) = self.decoder(encoder_outputs, mels, memory_lengths=text_lengths)
@@ -573,8 +626,31 @@ class Tacotron2(nn.Module):
             output_lengths)
 
     def inference(self, inputs):
-        embedded_inputs = self.embedding(inputs).transpose(1, 2)
-        encoder_outputs = self.encoder.inference(embedded_inputs)
+        text, reference_mel, speaker_ids = inputs
+        embedded_inputs = self.embedding(text).transpose(1, 2)
+        embedded_text = self.encoder.inference(embedded_inputs)
+        embedded_speakers = self.speaker_embedding(speaker_ids)[:, None]
+
+        if hasattr(self, 'gst'):
+            if isinstance(reference_mel, int):
+                weights = torch.zeros(1, self.token_num).cuda() # enter Zero weights
+                embedded_gst = self.gst(weights, ref_mode=False)
+            elif isinstance(reference_mel, list):
+                assert len(reference_mel) == self.token_num # check the custom input is the same size as the token_num
+                weights = torch.FloatTensor(reference_mel).unsqueeze(0).cuda() # enter Zero weights
+                embedded_gst = self.gst(weights, ref_mode=False)
+            else:
+                embedded_gst = self.gst(reference_mel)
+        embedded_speakers = embedded_speakers.repeat(1, embedded_text.size(1), 1)
+
+        if hasattr(self, 'gst'):
+            embedded_gst = embedded_gst.repeat(1, embedded_text.size(1), 1)
+            encoder_outputs = torch.cat(
+                (embedded_speakers, embedded_gst, embedded_text), dim=2)
+        else:
+            encoder_outputs = torch.cat(
+                (embedded_speakers, embedded_text), dim=2)
+
         mel_outputs, gate_outputs, alignments = self.decoder.inference(
             encoder_outputs)
 
