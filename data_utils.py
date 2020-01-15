@@ -7,13 +7,14 @@ import layers
 from utils import load_wav_to_torch, load_filepaths_and_text
 from text import text_to_sequence, sequence_to_ctc_sequence
 
+
 class TextMelLoader(torch.utils.data.Dataset):
     """
         1) loads audio,text pairs
         2) normalizes text and converts them to sequences of one-hot vectors
         3) computes mel-spectrograms from audio files.
     """
-    def __init__(self, audiopaths_and_text, hparams, speaker_ids=None):
+    def __init__(self, audiopaths_and_text, hparams):
         self.audiopaths_and_text = load_filepaths_and_text(audiopaths_and_text)
         self.text_cleaners = hparams.text_cleaners
         self.max_wav_value = hparams.max_wav_value
@@ -23,23 +24,15 @@ class TextMelLoader(torch.utils.data.Dataset):
             hparams.filter_length, hparams.hop_length, hparams.win_length,
             hparams.n_mel_channels, hparams.sampling_rate, hparams.mel_fmin,
             hparams.mel_fmax)
-        self.sampling_rate = hparams.sampling_rate
-        self.filter_length = hparams.filter_length
-        self.hop_length = hparams.hop_length
-
-
-        self.speaker_ids = speaker_ids
-        if speaker_ids is None:
-            self.speaker_ids = self.create_speaker_lookup_table(self.audiopaths_and_text)
-
         random.seed(1234)
         random.shuffle(self.audiopaths_and_text)
 
-    def create_speaker_lookup_table(self, audiopaths_and_text):
-        speaker_ids = np.sort(np.unique([x[2] for x in audiopaths_and_text]))
-        d = {int(speaker_ids[i]): i for i in range(len(speaker_ids))}
-        return d
-
+    def get_mel_text_pair(self, audiopath_and_text):
+        # separate filename and text
+        audiopath, text = audiopath_and_text[0], audiopath_and_text[1]
+        text, ctc_text = self.get_text(text)
+        mel = self.get_mel(audiopath)
+        return (text, ctc_text, mel)
 
     def get_mel(self, filename):
         if not self.load_mel_from_disk:
@@ -57,20 +50,8 @@ class TextMelLoader(torch.utils.data.Dataset):
             assert melspec.size(0) == self.stft.n_mel_channels, (
                 'Mel dimension mismatch: given {}, expected {}'.format(
                     melspec.size(0), self.stft.n_mel_channels))
+
         return melspec
-
-
-    def get_mel_text_pair(self, audiopath_and_text):
-        # separate filename and text
-        #audiopath, text = audiopath_and_text[0], audiopath_and_text[1] # original
-        audiopath, text, speaker = audiopath_and_text # take [filename,label,speaker_id] from filelist txt.
-        text, ctc_text = self.get_text(text) # convert text into tensor representation
-        mel = self.get_mel(audiopath) # get mel-spec as tensor from audiofile.
-        speaker_id = self.get_speaker_id(speaker) # assign internal speaker_ids
-        return (text, ctc_text, mel, speaker_id)
-
-    def get_speaker_id(self, speaker_id):
-        return torch.IntTensor([self.speaker_ids[int(speaker_id)]])
 
     def get_text(self, text):
         sequence = text_to_sequence(text, self.text_cleaners)
@@ -109,11 +90,11 @@ class TextMelCollate():
             text = batch[ids_sorted_decreasing[i]][0]
             text_padded[i, :text.size(0)] = text
 
-        max_ctc_txt_len = max([len(x[1]) for x in batch])  # 2nd elem in [text, ctc_text, mel, speaker_id], finding max_len for padding for batches
+        max_ctc_txt_len = max([len(x[1]) for x in batch])
         ctc_text_paded = torch.LongTensor(len(batch), max_ctc_txt_len)
         ctc_text_paded .zero_()
         ctc_text_lengths = torch.LongTensor(len(batch))
-        for i in range(len(ids_sorted_decreasing)):             # padding all the batches
+        for i in range(len(ids_sorted_decreasing)):
             ctc_text = batch[ids_sorted_decreasing[i]][1]
             ctc_text_paded[i, :ctc_text.size(0)] = ctc_text
             ctc_text_lengths[i] = ctc_text.size(0)
@@ -131,14 +112,11 @@ class TextMelCollate():
         gate_padded = torch.FloatTensor(len(batch), max_target_len)
         gate_padded.zero_()
         output_lengths = torch.LongTensor(len(batch))
-        speaker_ids = torch.LongTensor(len(batch))
-
         for i in range(len(ids_sorted_decreasing)):
-            mel = batch[ids_sorted_decreasing[i]][2] # 3rd elem in [text, ctc_text, mel, speaker_id]
+            mel = batch[ids_sorted_decreasing[i]][2]
             mel_padded[i, :, :mel.size(1)] = mel
             gate_padded[i, mel.size(1)-1:] = 1
             output_lengths[i] = mel.size(1)
-            speaker_ids[i] = batch[ids_sorted_decreasing[i]][3] # 4th elem in [text, ctc_text, mel, speaker_id]
 
         return text_padded, input_lengths, mel_padded, gate_padded, \
-            output_lengths, ctc_text_paded, ctc_text_lengths, speaker_ids # added speaker id's to dataloader output
+            output_lengths, ctc_text_paded, ctc_text_lengths
