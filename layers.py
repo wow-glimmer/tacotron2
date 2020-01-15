@@ -30,14 +30,27 @@ class ConvNorm(torch.nn.Module):
                                     kernel_size=kernel_size, stride=stride,
                                     padding=padding, dilation=dilation,
                                     bias=bias)
+        torch.nn.init.xavier_uniform_(
+            self.conv.weight, gain=torch.nn.init.calculate_gain(w_init_gain))
+    def forward(self, signal):
+        conv_signal = self.conv(signal)
+        return conv_signal
 
+
+class ConvNorm2D(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1,
+                 padding=None, dilation=1, bias=True, w_init_gain='linear'):
+        super(ConvNorm2D, self).__init__()
+        self.conv = torch.nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
+                                    kernel_size=kernel_size, stride=stride,
+                                    padding=padding, dilation=dilation,
+                                    groups=1, bias=bias)
         torch.nn.init.xavier_uniform_(
             self.conv.weight, gain=torch.nn.init.calculate_gain(w_init_gain))
 
     def forward(self, signal):
         conv_signal = self.conv(signal)
         return conv_signal
-
 
 class TacotronSTFT(torch.nn.Module):
     def __init__(self, filter_length=1024, hop_length=256, win_length=1024,
