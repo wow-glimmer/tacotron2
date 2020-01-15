@@ -1,5 +1,5 @@
 import tensorflow as tf
-from text.symbols import symbols
+from text import symbols
 
 
 def create_hparams(hparams_string=None, verbose=False):
@@ -9,7 +9,7 @@ def create_hparams(hparams_string=None, verbose=False):
         ################################
         # Experiment Parameters        #
         ################################
-        epochs=1000,
+        epochs=10000,
         iters_per_checkpoint=1000,
         seed=1234,
         dynamic_loss_scaling=True,
@@ -22,24 +22,24 @@ def create_hparams(hparams_string=None, verbose=False):
         ignore_layers=[0],
 
         ################################
-        # Data Parameters              #
+        # Data Parameters             #
         ################################
         load_mel_from_disk=True,
-        training_files='mel_train_taca2_merged.txt',
-        validation_files='mel_validation_taca2_merged.txt',
+        training_files='filelists/ljs_audio_text_train_filelist.txt',
+        validation_files='filelists/ljs_audio_text_val_filelist.txt',
         text_cleaners=['english_cleaners'],
 
         ################################
         # Audio Parameters             #
         ################################
         max_wav_value=32768.0,
-        sampling_rate=48000,
-        filter_length=2400,
-        hop_length=600,
-        win_length=2400,
+        sampling_rate=22050,
+        filter_length=1024,
+        hop_length=256,
+        win_length=1024,
         n_mel_channels=80,
         mel_fmin=0.0,
-        mel_fmax=18000.0,
+        mel_fmax=8000.0,
 
         ################################
         # Model Parameters             #
@@ -50,56 +50,39 @@ def create_hparams(hparams_string=None, verbose=False):
         # Encoder parameters
         encoder_kernel_size=5,
         encoder_n_convolutions=3,
-        encoder_embedding_dim=512, # text embedding size
+        encoder_embedding_dim=512,
 
         # Decoder parameters
         n_frames_per_step=1,  # currently only 1 is supported
-        decoder_rnn_dim=1024, # main decoder param # 1024 original
-        prenet_dim=256, # original 256
-        max_decoder_steps=3500,
-        gate_threshold=0.5,
+        decoder_rnn_dim=1024,
+        prenet_dim=256,
+        max_decoder_steps=1200,
+        gate_threshold=0.25,
         p_attention_dropout=0.1,
         p_decoder_dropout=0.1,
         p_teacher_forcing=1.0,
 
         # Attention parameters
-        attention_rnn_dim=1024, # 1024 original
-        attention_dim=128, # 128 original
+        attention_rnn_dim=1024,
+        attention_dim=128,
 
         # Location Layer parameters
-        attention_location_n_filters=32, # 32 original
-        attention_location_kernel_size=31, # 31 original
+        attention_location_n_filters=32,
+        attention_location_kernel_size=31,
 
         # Mel-post processing network parameters
         postnet_embedding_dim=512,
         postnet_kernel_size=5,
         postnet_n_convolutions=5,
 
-        # Speaker embedding
-        n_speakers=240,
-        speaker_embedding_dim=128, # speaker embedding size
-
-        # Reference encoder
-        with_gst=True,
-        ref_enc_filters=[32, 32, 64, 64, 128, 128],
-        ref_enc_size=[3, 3],
-        ref_enc_strides=[2, 2],
-        ref_enc_pad=[1, 1],
-        ref_enc_gru_size=128,
-
-        # Style Token Layer
-        token_embedding_size=256, # token embedding size
-        token_num=10,
-        num_heads=8,
-
         ################################
         # Optimization Hyperparameters #
         ################################
         use_saved_learning_rate=False,
-        learning_rate=10e-4,
+        learning_rate=1e-3,
         weight_decay=1e-6,
         grad_clip_thresh=1.0,
-        batch_size=15,
+        batch_size=32,
         mask_padding=True,  # set model's padded outputs to padded values
 
         ##################################
@@ -108,7 +91,7 @@ def create_hparams(hparams_string=None, verbose=False):
         drop_frame_rate=0.2,
         use_mmi=True,
         use_gaf=True,
-        max_gaf=0.03,
+        max_gaf=0.5,
         global_mean_npy='global_mean.npy'
     )
 
