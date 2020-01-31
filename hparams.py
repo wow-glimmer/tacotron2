@@ -60,7 +60,9 @@ def create_hparams(hparams_string=None, verbose=False):
         gate_threshold=0.25,
         p_attention_dropout=0.1,
         p_decoder_dropout=0.1,
-        p_teacher_forcing=1.0,
+        p_teacher_forcing=1.00,# original 1.00
+        teacher_force_till=0, # int, number of starting frames with teacher_forcing at 100%, helps with clips that have challenging starting conditions i.e breathing before the text begins.
+                               # original 0
 
         # Attention parameters
         attention_rnn_dim=1024,
@@ -84,15 +86,6 @@ def create_hparams(hparams_string=None, verbose=False):
         grad_clip_thresh=1.0,
         batch_size=32,
         mask_padding=True,  # set model's padded outputs to padded values
-
-        ##################################
-        # MMI options                    #
-        ##################################
-        drop_frame_rate=0.2,
-        use_mmi=True,
-        use_gaf=True,
-        max_gaf=0.5,
-        global_mean_npy='global_mean.npy'
     )
 
     if hparams_string:
