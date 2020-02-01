@@ -514,7 +514,7 @@ class Tacotron2(nn.Module):
         encoder_outputs = self.encoder(embedded_inputs, text_lengths)
 
         mel_outputs, gate_outputs, alignments = self.decoder(
-            encoder_outputs, mels, memory_lengths=input_lengths, teacher_force_till=teacher_force_till, p_teacher_forcing=p_teacher_forcing)
+            encoder_outputs, mels, memory_lengths=text_lengths, teacher_force_till=teacher_force_till, p_teacher_forcing=p_teacher_forcing)
 
         mel_outputs_postnet = self.postnet(mel_outputs)
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
