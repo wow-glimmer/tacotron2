@@ -81,7 +81,11 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = hparams.cudnn_benchmark
 
     threads = 1 # Uses about 46GB of RAM each
-
+    
+    # google colab
+    hparams.training_files = "filelists/clipper_train_filelist.txt"
+    hparams.validation_files = "filelists/clipper_val_filelist.txt"
+    
     print("Generating Mels")
     create_mels(hparams.training_files, hparams.validation_files, threads)
     print("Finished Generating Mels")
