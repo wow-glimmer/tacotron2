@@ -5,6 +5,7 @@ from torch import nn
 from torch.nn import functional as F
 from layers import ConvNorm, LinearNorm
 from utils import to_gpu, get_mask_from_lengths
+import numpy as np
 
 drop_rate = 0.5
 
