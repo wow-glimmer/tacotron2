@@ -68,7 +68,7 @@ def multiprocess_gen_mels(audiopaths_internal):
 
 def create_mels(training_filelist, validation_filelist, threads):
     import glob
-    audiopaths = glob.glob('/media/cookie/Samsung 860 QVO/ClipperDatasetV2/**/*.wav',recursive=True)
+    audiopaths = glob.glob('wavs/*.wav',recursive=True)
     #audiopaths = []
     #audiopaths.extend([x[0] for x in load_filepaths_and_text(training_filelist)]) # add audio paths for training data
     #audiopaths.extend([x[0] for x in load_filepaths_and_text(validation_filelist)]) # add audio paths for validation data
