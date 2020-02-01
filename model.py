@@ -502,7 +502,7 @@ class Tacotron2(nn.Module):
 
         return outputs
 
-    def forward(self, inputs):
+    def forward(self, inputs, teacher_force_till=None, p_teacher_forcing=None):
         text_inputs, text_lengths, mels, max_len, output_lengths = inputs
         text_lengths, output_lengths = text_lengths.data, output_lengths.data
 
