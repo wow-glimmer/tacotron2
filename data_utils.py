@@ -20,6 +20,8 @@ class TextMelLoader(torch.utils.data.Dataset):
         self.max_wav_value = hparams.max_wav_value
         self.sampling_rate = hparams.sampling_rate
         self.load_mel_from_disk = hparams.load_mel_from_disk
+        self.start_token = hparams.start_token
+        self.stop_token = hparams.stop_token
         self.stft = layers.TacotronSTFT(
             hparams.filter_length, hparams.hop_length, hparams.win_length,
             hparams.n_mel_channels, hparams.sampling_rate, hparams.mel_fmin,
@@ -54,6 +56,7 @@ class TextMelLoader(torch.utils.data.Dataset):
         return melspec
 
     def get_text(self, text):
+        text = str(self.start_token) + text + str(self.stop_token)
         text_norm = torch.IntTensor(text_to_sequence(text, self.text_cleaners))
         return text_norm
 
