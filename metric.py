@@ -13,7 +13,7 @@ def alignment_metric(x, y_pred):
     # input_lengths [batch size] for len_x
     # output_lengths [batch size] for len_y
     
-    text_padded, input_lengths, mel_padded, max_len, output_lengths, speaker_ids = x
+    text_padded, input_lengths, mel_padded, max_len, output_lengths = x
     mel_out, mel_out_postnet, gate_outputs, alignments = y_pred
 
     batch_size = alignments.size(0)
