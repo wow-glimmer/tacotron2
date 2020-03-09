@@ -491,7 +491,7 @@ class Decoder(nn.Module):
 
             decoder_outputs += [decoder_output.squeeze(1)]
             mel_outputs += [mel_output.squeeze(1)]
-            gate_outputs += [gate_output]
+            gate_outputs += [gate_output.squeeze(1)]
             alignments += [alignment]
 
             if torch.sigmoid(gate_output.data) > self.gate_threshold:
