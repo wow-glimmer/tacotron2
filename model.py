@@ -422,7 +422,7 @@ class Decoder(nn.Module):
 
             decoder_outputs += [decoder_output.squeeze(1)]
             mel_outputs += [mel_output.squeeze(1)]
-            gate_outputs += [gate_output.squeeze()]
+            gate_outputs += [gate_output.squeeze(1)]
             alignments += [attention_weights]
 
         (decoder_outputs, mel_outputs, gate_outputs, alignments
