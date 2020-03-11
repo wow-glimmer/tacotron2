@@ -31,12 +31,16 @@ class TextMelLoader(torch.utils.data.Dataset):
                 print(file, "does not exist and has been ignored")
                 self.audiopaths_and_text.remove(file)
                 continue
+            if not len(file[1]):
+                print(file, "has no text and has been ignored.")
+                self.audiopaths_and_text.remove(file)
+                continue
             mel_length = 1
             if self.load_mel_from_disk:
                 melspec = torch.from_numpy(np.load(file[0], allow_pickle=True))
                 mel_length = melspec.shape[1]
             if mel_length == 0:
-                print(file, "has 0 length and has been ignored")
+                print(file, "has 0 duration and has been ignored")
                 self.audiopaths_and_text.remove(file)
                 continue
         self.stft = layers.TacotronSTFT(
