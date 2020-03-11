@@ -21,25 +21,6 @@ class TextMelLoader(torch.utils.data.Dataset):
         self.max_wav_value = hparams.max_wav_value
         self.sampling_rate = hparams.sampling_rate
         self.load_mel_from_disk = hparams.load_mel_from_disk
-        ###########################################################
-            if len(file) > 2:
-                print("|".join(file), "\nhas multiple '|', this may not be an error.")
-            if hparams.load_mel_from_disk and '.wav' in file[0]:
-                print(file[0], " in filelist while expecting .npy .")
-            else:
-                if not hparams.load_mel_from_disk and '.npy' in file[0]:
-                    print(file[0], " in filelist while expecting .wav .")
-            if (not os.path.exists(file[0])):
-                print("|".join(file), "does not exist.")
-            if len(file[1]) < 3:
-                print("|".join(file), "has no/very little text.")
-            mel_length = 1
-            if hparams.load_mel_from_disk and '.npy' in file[0]:
-                melspec = torch.from_numpy(np.load(file[0], allow_pickle=True))
-                mel_length = melspec.shape[1]
-            if mel_length == 0:
-                print("|".join(file), "has 0 duration.")
-        ###########################################################
         # Perform Checks on Dataset
         for i, file in enumerate(self.audiopaths_and_text):
             if self.load_mel_from_disk and '.wav' in file[0]:
@@ -47,7 +28,7 @@ class TextMelLoader(torch.utils.data.Dataset):
                     self.audiopaths_and_text.remove(file)
                     continue
             else:
-                if '.npy' in file[0]:
+                if not self.load_mel_from_disk and '.npy' in file[0]:
                     print(".npy file", file[0], "\n[warning] in filelist while load_mel_from_disk is False. Being Ignored.")
                     self.audiopaths_and_text.remove(file)
                     continue
