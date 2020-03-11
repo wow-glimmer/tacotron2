@@ -22,6 +22,11 @@ class TextMelLoader(torch.utils.data.Dataset):
         self.sampling_rate = hparams.sampling_rate
         self.load_mel_from_disk = hparams.load_mel_from_disk
         for i, file in enumerate(self.audiopaths_and_text):
+            if self.load_mel_from_disk and '.wav' in file[0]:
+                print(".wav file", file[0], " in filelist while load_mel_from_disk is True.")
+            else:
+                if '.npy' in file[0]:
+                    print(".npy file", file[0], " in filelist while load_mel_from_disk is False.")
             if (not os.path.exists(file[0])):
                 print(file, "does not exist and has been ignored")
                 self.audiopaths_and_text.remove(file)
