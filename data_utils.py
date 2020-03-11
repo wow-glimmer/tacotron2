@@ -28,11 +28,11 @@ class TextMelLoader(torch.utils.data.Dataset):
                 if '.npy' in file[0]:
                     print(".npy file", file[0], " in filelist while load_mel_from_disk is False.")
             if (not os.path.exists(file[0])):
-                print(file, "does not exist and has been ignored")
+                print("|".join(file), "does not exist and has been ignored")
                 self.audiopaths_and_text.remove(file)
                 continue
             if not len(file[1]):
-                print(file, "has no text and has been ignored.")
+                print("|".join(file), "has no text and has been ignored.")
                 self.audiopaths_and_text.remove(file)
                 continue
             mel_length = 1
@@ -40,7 +40,7 @@ class TextMelLoader(torch.utils.data.Dataset):
                 melspec = torch.from_numpy(np.load(file[0], allow_pickle=True))
                 mel_length = melspec.shape[1]
             if mel_length == 0:
-                print(file, "has 0 duration and has been ignored")
+                print("|".join(file), "has 0 duration and has been ignored")
                 self.audiopaths_and_text.remove(file)
                 continue
         self.stft = layers.TacotronSTFT(
