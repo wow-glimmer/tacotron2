@@ -2,6 +2,7 @@ import random
 import numpy as np
 import torch
 import torch.utils.data
+import os
 
 import layers
 from utils import load_wav_to_torch, load_filepaths_and_text
