@@ -21,6 +21,8 @@ class TextMelLoader(torch.utils.data.Dataset):
         self.max_wav_value = hparams.max_wav_value
         self.sampling_rate = hparams.sampling_rate
         self.load_mel_from_disk = hparams.load_mel_from_disk
+        
+        # Perform Checks on Dataset
         for i, file in enumerate(self.audiopaths_and_text):
             if self.load_mel_from_disk and '.wav' in file[0]:
                 print(".wav file", file[0], " in filelist while load_mel_from_disk is True.")
@@ -43,6 +45,8 @@ class TextMelLoader(torch.utils.data.Dataset):
                 print("|".join(file), "has 0 duration and has been ignored")
                 self.audiopaths_and_text.remove(file)
                 continue
+        
+        # init STFT (not used for load_mel_from_disk)
         self.stft = layers.TacotronSTFT(
             hparams.filter_length, hparams.hop_length, hparams.win_length,
             hparams.n_mel_channels, hparams.sampling_rate, hparams.mel_fmin,
