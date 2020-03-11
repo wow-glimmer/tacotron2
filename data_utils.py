@@ -17,6 +17,10 @@ class TextMelLoader(torch.utils.data.Dataset):
     """
     def __init__(self, audiopaths_and_text, hparams):
         self.audiopaths_and_text = load_filepaths_and_text(audiopaths_and_text)
+        self.text_cleaners = hparams.text_cleaners
+        self.max_wav_value = hparams.max_wav_value
+        self.sampling_rate = hparams.sampling_rate
+        self.load_mel_from_disk = hparams.load_mel_from_disk
         for i, file in enumerate(self.audiopaths_and_text):
             if (not os.path.exists(file[0])):
                 print(file, "does not exist and has been ignored")
@@ -30,10 +34,6 @@ class TextMelLoader(torch.utils.data.Dataset):
                 print(file, "has 0 length and has been ignored")
                 self.audiopaths_and_text.remove(file)
                 continue
-        self.text_cleaners = hparams.text_cleaners
-        self.max_wav_value = hparams.max_wav_value
-        self.sampling_rate = hparams.sampling_rate
-        self.load_mel_from_disk = hparams.load_mel_from_disk
         self.stft = layers.TacotronSTFT(
             hparams.filter_length, hparams.hop_length, hparams.win_length,
             hparams.n_mel_channels, hparams.sampling_rate, hparams.mel_fmin,
