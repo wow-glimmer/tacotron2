@@ -25,8 +25,8 @@ class TextMelLoader(torch.utils.data.Dataset):
         for i, file in enumerate(self.audiopaths_and_text):
             if self.load_mel_from_disk and '.wav' in file[0]:
                 print(".wav file", file[0], "\n[warning] in filelist while expecting '.npy' . Being Ignored.")
-                    self.audiopaths_and_text.remove(file)
-                    continue
+                self.audiopaths_and_text.remove(file)
+                continue
             else:
                 if not self.load_mel_from_disk and '.npy' in file[0]:
                     print(".npy file", file[0], "\n[warning] in filelist while expecting '.wav' . Being Ignored.")
