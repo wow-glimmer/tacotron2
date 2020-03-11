@@ -22,23 +22,31 @@ class TextMelLoader(torch.utils.data.Dataset):
         self.sampling_rate = hparams.sampling_rate
         self.load_mel_from_disk = hparams.load_mel_from_disk
         # Perform Checks on Dataset
-        for i, file in enumerate(self.audiopaths_and_text):
+        i = 0
+        i_offset = 0
+        for i_ in range(len(self.audiopaths_and_text)):
+            i = i_ + i_offset
+            if i == len(self.audiopaths_and_text): break
+            file = self.audiopaths_and_text[i]
             if self.load_mel_from_disk and '.wav' in file[0]:
                 print(".wav file", file[0], "\n[warning] in filelist while expecting '.npy' . Being Ignored.")
                 self.audiopaths_and_text.remove(file)
+                i_offset-=1
                 continue
-            else:
-                if not self.load_mel_from_disk and '.npy' in file[0]:
+            elif not self.load_mel_from_disk and '.npy' in file[0]:
                     print(".npy file", file[0], "\n[warning] in filelist while expecting '.wav' . Being Ignored.")
                     self.audiopaths_and_text.remove(file)
+                    i_offset-=1
                     continue
             if (not os.path.exists(file[0])):
                 print("|".join(file), "\n[warning] does not exist and has been ignored")
                 self.audiopaths_and_text.remove(file)
+                i_offset-=1
                 continue
             if not len(file[1]):
                 print("|".join(file), "\n[warning] has no text and has been ignored.")
                 self.audiopaths_and_text.remove(file)
+                i_offset-=1
                 continue
             if len(file[1]) < 3:
                 print("|".join(file), "\n[info] has no/very little text.")
@@ -50,6 +58,7 @@ class TextMelLoader(torch.utils.data.Dataset):
                 if mel_length == 0:
                     print("|".join(file), "\n[warning] has 0 duration and has been ignored")
                     self.audiopaths_and_text.remove(file)
+                    i_offset-=1
                     continue
         
         # init STFT (not used for load_mel_from_disk)
